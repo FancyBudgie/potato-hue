@@ -1,0 +1,25 @@
+[Unit]
+Description=Pulse a Philips Hue light when Pot Potato is snatched
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=potato-hue
+WorkingDirectory=/var/lib/potato-hue
+EnvironmentFile=/etc/potato-hue/.env
+Environment=POTATO_STATE_FILE=/var/lib/potato-hue/watch-state.json
+ExecStart=/usr/local/bin/potato-hue watch
+Restart=always
+RestartSec=5
+
+# The service only needs outbound network access and its own state directory.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/potato-hue
+
+[Install]
+WantedBy=multi-user.target
