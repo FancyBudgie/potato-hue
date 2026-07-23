@@ -110,6 +110,36 @@ temperature must be between 2000K and 6535K. The saved original brightness,
 colour/temperature, and on/off state are always restored at the end of a
 batch.
 
+## Hot-potato holder mode
+
+Set `WATCHED_ADDRESS` to a Chia address to turn the selected light into a
+live hot-potato indicator while that address owns the potato. It begins at the
+configured starting style when the potato is acquired, then intensifies until
+the deadline. When somebody else snatches it, the service restores the exact
+state the light had before holder mode began.
+
+```dotenv
+WATCHED_ADDRESS=xch1youraddress...
+HOLDER_START_BRIGHTNESS=10 # percentage
+HOLDER_END_BRIGHTNESS=100  # percentage
+
+# Used automatically by RGB-capable lights:
+HOLDER_START_COLOR=#8B4513 # brown
+HOLDER_END_COLOR=#FF0000   # red
+
+# Used automatically by white/colour-temperature lights:
+HOLDER_START_TEMPERATURE_K=2200 # warm white
+HOLDER_END_TEMPERATURE_K=6500   # cool white
+```
+
+All holder-mode settings are optional except `WATCHED_ADDRESS`; those values
+are the defaults. The bridge reports the selected light's capabilities, and
+the service automatically uses the brown-to-red RGB gradient for RGB lights or
+the warm-to-cold temperature gradient for colour-temperature lights. For a
+brightness-only light, it still runs the brightness gradient. `make
+service-list-lights` labels each light as `RGB`, `white temperature`, or
+`brightness only`.
+
 ## What a pulse means
 
 The service captures the light's state once for each queued batch. If the
@@ -119,6 +149,10 @@ again. After all queued pulses, it restores the saved state.
 
 So if the holder count increases by 10 between checks, the light pulses 10
 times, then returns to precisely the state it was in before the first pulse.
+
+Holder mode and pulse notifications work together: a snatch pulse temporarily
+interrupts the holder display, then returns to the active holder display (or,
+if ownership changed, to the original pre-holder state).
 
 ## Other service commands
 

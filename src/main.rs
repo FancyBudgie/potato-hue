@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     env, fs,
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -23,6 +23,7 @@ struct Config {
     pulse_gap: Duration,
     pulse_bri: u8,
     pulse_style: PulseStyle,
+    holder: Option<HolderConfig>,
     state_file: PathBuf,
 }
 
@@ -31,6 +32,17 @@ enum PulseStyle {
     Preserve,
     Temperature(u16),
     Xy { x: f64, y: f64 },
+}
+
+#[derive(Debug, Clone)]
+struct HolderConfig {
+    watched_address: String,
+    start_bri: u8,
+    end_bri: u8,
+    start_xy: [f64; 2],
+    end_xy: [f64; 2],
+    start_ct: u16,
+    end_ct: u16,
 }
 
 #[derive(Debug, Deserialize)]
@@ -42,6 +54,12 @@ struct PotatoResponse {
 struct PotatoState {
     #[serde(rename = "holderCount")]
     holder_count: u64,
+    #[serde(rename = "currentOwner", default)]
+    current_owner: Option<String>,
+    #[serde(rename = "purchasedAt", default)]
+    purchased_at: Option<i64>,
+    #[serde(default)]
+    deadline: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -50,9 +68,31 @@ struct HueLight {
     #[serde(default)]
     productname: Option<String>,
     state: HueState,
+    #[serde(default)]
+    capabilities: HueCapabilities,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
+struct HueCapabilities {
+    #[serde(default)]
+    control: HueControl,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct HueControl {
+    #[serde(default)]
+    colorgamut: Option<Vec<[f64; 2]>>,
+    #[serde(default)]
+    ct: Option<HueTemperatureRange>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+struct HueTemperatureRange {
+    min: u16,
+    max: u16,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 struct HueState {
     on: bool,
     #[serde(default)]
@@ -73,6 +113,8 @@ struct HueState {
 struct WatchState {
     last_holder_count: u64,
     pending_pulses: u64,
+    #[serde(default)]
+    holder_light_state: Option<HueState>,
 }
 
 #[tokio::main]
@@ -129,6 +171,9 @@ impl Config {
             (None, None) => PulseStyle::Preserve,
             (Some(_), Some(_)) => unreachable!("configuration conflict checked above"),
         };
+        let holder = optional_env("WATCHED_ADDRESS")
+            .map(|address| HolderConfig::from_env(address.trim().to_owned()))
+            .transpose()?;
         Ok(Self {
             bridge_ip: required_env("HUE_BRIDGE_IP")?,
             app_key: required_env("HUE_APP_KEY")?,
@@ -142,6 +187,7 @@ impl Config {
             pulse_gap: Duration::from_millis(env_u64("PULSE_GAP_MS", 180)?),
             pulse_bri: hue_brightness(env_u64("PULSE_MAX_BRIGHTNESS", 100)?)?,
             pulse_style,
+            holder,
             state_file: PathBuf::from(
                 env::var("POTATO_STATE_FILE")
                     .unwrap_or_else(|_| "potato-hue-state.json".to_owned()),
@@ -151,6 +197,30 @@ impl Config {
 
     fn api_url(&self, path: &str) -> String {
         format!("http://{}/api/{}{}", self.bridge_ip, self.app_key, path)
+    }
+}
+
+impl HolderConfig {
+    fn from_env(watched_address: String) -> Result<Self> {
+        Ok(Self {
+            watched_address,
+            start_bri: hue_brightness_named("HOLDER_START_BRIGHTNESS", 10)?,
+            end_bri: hue_brightness_named("HOLDER_END_BRIGHTNESS", 100)?,
+            start_xy: rgb_hex_to_xy(
+                &optional_env("HOLDER_START_COLOR").unwrap_or_else(|| "#8B4513".to_owned()),
+            )?,
+            end_xy: rgb_hex_to_xy(
+                &optional_env("HOLDER_END_COLOR").unwrap_or_else(|| "#FF0000".to_owned()),
+            )?,
+            start_ct: kelvin_to_mired_named(
+                "HOLDER_START_TEMPERATURE_K",
+                optional_env_u64("HOLDER_START_TEMPERATURE_K")?.unwrap_or(2_200),
+            )?,
+            end_ct: kelvin_to_mired_named(
+                "HOLDER_END_TEMPERATURE_K",
+                optional_env_u64("HOLDER_END_TEMPERATURE_K")?.unwrap_or(6_500),
+            )?,
+        })
     }
 }
 
@@ -180,22 +250,36 @@ fn optional_env_u64(name: &str) -> Result<Option<u64>> {
     }
 }
 
+fn optional_env(name: &str) -> Option<String> {
+    env::var(name).ok().filter(|value| !value.trim().is_empty())
+}
+
 fn kelvin_to_mired(kelvin: u64) -> Result<u16> {
+    kelvin_to_mired_named("PULSE_TEMPERATURE_K", kelvin)
+}
+
+fn kelvin_to_mired_named(name: &str, kelvin: u64) -> Result<u16> {
     if kelvin == 0 {
-        bail!("PULSE_TEMPERATURE_K must be greater than zero")
+        bail!("{name} must be greater than zero")
     }
     let mired = 1_000_000 / kelvin;
     if !(153..=500).contains(&mired) {
-        bail!(
-            "PULSE_TEMPERATURE_K must be between 2000K and 6535K for a Hue colour-temperature light"
-        )
+        bail!("{name} must be between 2000K and 6535K for a Hue colour-temperature light")
     }
     Ok(mired as u16)
 }
 
 fn hue_brightness(percent: u64) -> Result<u8> {
+    hue_brightness_value("PULSE_MAX_BRIGHTNESS", percent)
+}
+
+fn hue_brightness_named(name: &str, default: u64) -> Result<u8> {
+    hue_brightness_value(name, env_u64(name, default)?)
+}
+
+fn hue_brightness_value(name: &str, percent: u64) -> Result<u8> {
     if !(1..=100).contains(&percent) {
-        bail!("PULSE_MAX_BRIGHTNESS must be a percentage from 1 to 100")
+        bail!("{name} must be a percentage from 1 to 100")
     }
     // Hue's v1 API has a brightness range of 1–254. Round so 100% means 254.
     Ok(((percent * 254 + 50) / 100) as u8)
@@ -224,7 +308,7 @@ fn rgb_hex_to_xy(value: &str) -> Result<[f64; 2]> {
     let z = red * 0.000_088 + green * 0.072_310 + blue * 0.986_039;
     let total = x + y + z;
     if total <= f64::EPSILON {
-        bail!("PULSE_COLOR cannot be black; use PULSE_BRI to choose pulse brightness")
+        bail!("PULSE_COLOR cannot be black; use PULSE_MAX_BRIGHTNESS to choose pulse brightness")
     }
     Ok([x / total, y / total])
 }
@@ -277,8 +361,15 @@ async fn list_lights(client: &Client, config: &Config) -> Result<()> {
     lights.sort_by(|(first, _), (second, _)| first.cmp(second));
     for (id, light) in lights {
         let kind = light.productname.as_deref().unwrap_or("Hue light");
+        let colour_support = if light.capabilities.control.colorgamut.is_some() {
+            "RGB"
+        } else if light.capabilities.control.ct.is_some() {
+            "white temperature"
+        } else {
+            "brightness only"
+        };
         println!(
-            "  {id:>3}  {:<28} {kind} ({})",
+            "  {id:>3}  {:<28} {kind}; {colour_support} ({})",
             light.name,
             if light.state.on { "on" } else { "off" }
         );
@@ -289,13 +380,14 @@ async fn list_lights(client: &Client, config: &Config) -> Result<()> {
 
 async fn watch(client: &Client, config: &Config) -> Result<()> {
     let mut watch_state = load_watch_state(&config.state_file)?;
-    let initial_count = holder_count(client).await?;
+    let mut potato_state = fetch_potato_state(client).await?;
 
     if !config.state_file.exists() {
-        watch_state.last_holder_count = initial_count;
+        watch_state.last_holder_count = potato_state.holder_count;
         save_watch_state(&config.state_file, &watch_state)?;
         println!(
-            "Watching from holder count {initial_count}; existing snatches will not be replayed."
+            "Watching from holder count {}; existing snatches will not be replayed.",
+            potato_state.holder_count
         );
     } else {
         println!(
@@ -305,6 +397,12 @@ async fn watch(client: &Client, config: &Config) -> Result<()> {
     }
 
     loop {
+        if let Err(error) =
+            update_holder_mode(client, config, &potato_state, &mut watch_state).await
+        {
+            eprintln!("Holder mode update failed; retrying: {error:#}");
+        }
+
         if watch_state.pending_pulses > 0 {
             let pulses = watch_state.pending_pulses;
             println!("Pulsing {pulses} time(s)…");
@@ -318,30 +416,35 @@ async fn watch(client: &Client, config: &Config) -> Result<()> {
         }
 
         sleep(config.poll_every).await;
-        match holder_count(client).await {
-            Ok(current_count) if current_count > watch_state.last_holder_count => {
-                let added = current_count - watch_state.last_holder_count;
-                watch_state.last_holder_count = current_count;
+        match fetch_potato_state(client).await {
+            Ok(next_state) if next_state.holder_count > watch_state.last_holder_count => {
+                let added = next_state.holder_count - watch_state.last_holder_count;
+                watch_state.last_holder_count = next_state.holder_count;
                 watch_state.pending_pulses += added;
                 save_watch_state(&config.state_file, &watch_state)?;
                 println!(
                     "Snatched {added} time(s); {} pulse(s) queued.",
                     watch_state.pending_pulses
                 );
+                potato_state = next_state;
             }
-            Ok(current_count) if current_count < watch_state.last_holder_count => {
+            Ok(next_state) if next_state.holder_count < watch_state.last_holder_count => {
                 // A new game or a reset: adopt its count without replaying an arbitrary number of pulses.
-                watch_state.last_holder_count = current_count;
+                watch_state.last_holder_count = next_state.holder_count;
                 save_watch_state(&config.state_file, &watch_state)?;
-                println!("Holder count moved backwards; reset baseline to {current_count}.");
+                println!(
+                    "Holder count moved backwards; reset baseline to {}.",
+                    next_state.holder_count
+                );
+                potato_state = next_state;
             }
-            Ok(_) => {}
+            Ok(next_state) => potato_state = next_state,
             Err(error) => eprintln!("Pot Potato check failed; retrying: {error:#}"),
         }
     }
 }
 
-async fn holder_count(client: &Client) -> Result<u64> {
+async fn fetch_potato_state(client: &Client) -> Result<PotatoState> {
     let response = client
         .get(POTATO_STATE_URL)
         .send()
@@ -352,7 +455,114 @@ async fn holder_count(client: &Client) -> Result<u64> {
         .json::<PotatoResponse>()
         .await
         .context("Pot Potato state response was invalid")?;
-    Ok(response.state.holder_count)
+    Ok(response.state)
+}
+
+async fn update_holder_mode(
+    client: &Client,
+    config: &Config,
+    potato: &PotatoState,
+    watch_state: &mut WatchState,
+) -> Result<()> {
+    let is_watched_holder = config.holder.as_ref().is_some_and(|holder| {
+        potato
+            .current_owner
+            .as_deref()
+            .is_some_and(|owner| owner.eq_ignore_ascii_case(&holder.watched_address))
+    });
+
+    if !is_watched_holder {
+        if let Some(saved_state) = watch_state.holder_light_state.take() {
+            put_light_state(client, config, restore_command(&saved_state)).await?;
+            save_watch_state(&config.state_file, watch_state)?;
+            println!("Watched address no longer holds the potato; restored the light.");
+        }
+        return Ok(());
+    }
+
+    let holder = config.holder.as_ref().expect("checked above");
+    let light: HueLight = hue_get(client, config, &format!("/lights/{}", config.light_id)).await?;
+    if watch_state.holder_light_state.is_none() {
+        watch_state.holder_light_state = Some(light.state.clone());
+        save_watch_state(&config.state_file, watch_state)?;
+        println!("Watched address holds the potato; starting the hot-potato light.");
+    }
+    let progress = hold_progress(potato, current_time_ms());
+    put_light_state(
+        client,
+        config,
+        holder_command(holder, &light, progress, holder_transition_time(config)),
+    )
+    .await
+}
+
+fn current_time_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(i64::MAX)
+}
+
+fn hold_progress(potato: &PotatoState, now_ms: i64) -> f64 {
+    let (Some(start), Some(deadline)) = (potato.purchased_at, potato.deadline) else {
+        return 0.0;
+    };
+    if deadline <= start {
+        return 0.0;
+    }
+    ((now_ms - start) as f64 / (deadline - start) as f64).clamp(0.0, 1.0)
+}
+
+fn holder_transition_time(config: &Config) -> u16 {
+    // Hue measures transition time in deciseconds. A short transition keeps each
+    // 60-second status update perceptibly smooth without delaying a restore.
+    (config.poll_every.as_millis() / 100).clamp(1, 50) as u16
+}
+
+fn holder_command(
+    holder: &HolderConfig,
+    light: &HueLight,
+    progress: f64,
+    transitiontime: u16,
+) -> Value {
+    let mut command = Map::new();
+    command.insert("on".to_owned(), Value::Bool(true));
+    command.insert(
+        "bri".to_owned(),
+        Value::from(interpolate_u8(holder.start_bri, holder.end_bri, progress)),
+    );
+    command.insert("transitiontime".to_owned(), Value::from(transitiontime));
+
+    if light.capabilities.control.colorgamut.is_some() {
+        let [x, y] = interpolate_xy(holder.start_xy, holder.end_xy, progress);
+        command.insert("xy".to_owned(), json!([x, y]));
+    } else if let Some(range) = light.capabilities.control.ct {
+        let ct =
+            interpolate_u16(holder.start_ct, holder.end_ct, progress).clamp(range.min, range.max);
+        command.insert("ct".to_owned(), Value::from(ct));
+    }
+    Value::Object(command)
+}
+
+fn interpolate_u8(start: u8, end: u8, progress: f64) -> u8 {
+    (f64::from(start) + (f64::from(end) - f64::from(start)) * progress)
+        .round()
+        .clamp(0.0, f64::from(u8::MAX)) as u8
+}
+
+fn interpolate_u16(start: u16, end: u16, progress: f64) -> u16 {
+    (f64::from(start) + (f64::from(end) - f64::from(start)) * progress)
+        .round()
+        .clamp(0.0, f64::from(u16::MAX)) as u16
+}
+
+fn interpolate_xy(start: [f64; 2], end: [f64; 2], progress: f64) -> [f64; 2] {
+    [
+        start[0] + (end[0] - start[0]) * progress,
+        start[1] + (end[1] - start[1]) * progress,
+    ]
 }
 
 async fn pulse_batch(client: &Client, config: &Config, count: u64) -> Result<()> {
@@ -581,5 +791,70 @@ mod tests {
         assert_eq!(hue_brightness(100).unwrap(), 254);
         assert_eq!(hue_brightness(50).unwrap(), 127);
         assert!(hue_brightness(0).is_err());
+    }
+
+    fn holder() -> HolderConfig {
+        HolderConfig {
+            watched_address: "xch1test".to_owned(),
+            start_bri: 25,
+            end_bri: 254,
+            start_xy: [0.5, 0.4],
+            end_xy: [0.7, 0.3],
+            start_ct: 454,
+            end_ct: 153,
+        }
+    }
+
+    fn test_light(control: HueControl) -> HueLight {
+        HueLight {
+            name: "Test light".to_owned(),
+            productname: None,
+            state: HueState {
+                on: false,
+                bri: Some(100),
+                hue: None,
+                sat: None,
+                xy: None,
+                ct: None,
+                colormode: None,
+            },
+            capabilities: HueCapabilities { control },
+        }
+    }
+
+    #[test]
+    fn holder_mode_uses_rgb_gradient_for_rgb_lights() {
+        let light = test_light(HueControl {
+            colorgamut: Some(vec![[0.1, 0.1]]),
+            ct: Some(HueTemperatureRange { min: 153, max: 500 }),
+        });
+        assert_eq!(
+            holder_command(&holder(), &light, 0.5, 10),
+            json!({ "on": true, "bri": 140, "transitiontime": 10, "xy": [0.6, 0.35] })
+        );
+    }
+
+    #[test]
+    fn holder_mode_uses_and_clamps_temperature_for_white_lights() {
+        let light = test_light(HueControl {
+            colorgamut: None,
+            ct: Some(HueTemperatureRange { min: 200, max: 400 }),
+        });
+        let command = holder_command(&holder(), &light, 1.0, 10);
+        assert_eq!(command["bri"], 254);
+        assert_eq!(command["ct"], 200);
+        assert!(command.get("xy").is_none());
+    }
+
+    #[test]
+    fn holder_progress_tracks_the_purchase_window() {
+        let potato = PotatoState {
+            holder_count: 1,
+            current_owner: Some("xch1test".to_owned()),
+            purchased_at: Some(1_000),
+            deadline: Some(5_000),
+        };
+        assert_eq!(hold_progress(&potato, 3_000), 0.5);
+        assert_eq!(hold_progress(&potato, 10_000), 1.0);
     }
 }
