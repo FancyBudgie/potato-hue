@@ -1,103 +1,139 @@
 # potato-hue
 
-A small, local watcher that pulses one Philips Hue light whenever Pot Potato is
-snatched. It polls `https://potpotato.xyz/api/state`, remembers the holder
-count locally, queues every missed snatch, and restores the light to the state
-it had before the pulse batch.
+`potato-hue` runs as a small Linux service and pulses a Philips Hue light when
+Pot Potato is snatched. It watches Pot Potato's public state, queues every
+snatch it observes, and restores the selected light to its exact previous
+state after the pulse batch.
 
-The bridge is contacted only on your home network. The Hue application key is
-the only secret; keep it in `.env`, which is ignored by git.
+The Hue bridge is contacted only over your home network. The service starts on
+boot, restarts if it fails, and saves its queue locally so a restart does not
+lose observed snatches.
 
-## Mac setup
+## Install and start
 
-1. Copy `.env.example` to `.env` and set `HUE_BRIDGE_IP` to the bridge's LAN
-   address.
-2. Press the physical button on the bridge, then immediately run:
+You need a Linux machine that can reach both the internet and your Hue bridge,
+plus `cargo`, `make`, and `sudo`. Run these commands on that Linux machine from
+a copy of this repository.
 
-   ```sh
-   cargo run -- authorize
-   ```
-
-   Copy the printed `HUE_APP_KEY` into `.env`.
-3. Find the selected light and set its id in `.env`:
+1. Install the binary and service files. This also creates the protected
+   configuration file at `/etc/potato-hue/.env`.
 
    ```sh
-   cargo run -- list-lights
+   make service-install
    ```
 
-4. Confirm the exact pulse behavior without waiting for a snatch:
+2. Set only your bridge's LAN address in the new config file. Leave the Hue
+   key and light ID blank for now.
 
    ```sh
-   cargo run -- test-pulse
+   sudoedit /etc/potato-hue/.env
    ```
 
-5. Start watching:
+   ```dotenv
+   HUE_BRIDGE_IP=192.168.1.50
+   HUE_APP_KEY=
+   HUE_LIGHT_ID=
+   ```
+
+3. Press the physical button on the Hue bridge, then run the authorization
+   command and copy the printed `HUE_APP_KEY` into `/etc/potato-hue/.env`.
 
    ```sh
-   cargo run -- watch
+   make service-authorize
+   sudoedit /etc/potato-hue/.env
    ```
 
-`watch` is also the default command, so `cargo run` works once the setup is
-complete.
+4. List the bridge lights, put the selected ID in `HUE_LIGHT_ID`, and make one
+   safe test pulse. The test returns the light to the state it had before.
 
-## Linux service deployment
+   ```sh
+   make service-list-lights
+   sudoedit /etc/potato-hue/.env
+   make service-test-pulse
+   ```
 
-The repository includes a `systemd` unit which starts on boot, restarts after a
-failure, and keeps its pulse queue under `/var/lib/potato-hue`. It uses a
-systemd-managed unprivileged identity, so it does not need a dedicated Linux
-user.
+5. Enable the watcher now and after future boots, then view its log.
 
-Build a Linux release binary on the server (or copy a binary built for the
-server's CPU architecture), then install the service files:
+   ```sh
+   sudo systemctl enable --now potato-hue
+   make service-logs
+   ```
+
+That is it. The first status line records the current holder count as a
+baseline; it will pulse after the next snatch. The default check interval is
+60 seconds.
+
+## Update or remove the service
+
+After obtaining a newer copy of this repository on the Linux machine, rebuild
+and restart the configured service with one command:
 
 ```sh
-cargo build --release
-sudo sh deploy/install-systemd.sh
-sudoedit /etc/potato-hue/.env
+make service-update
 ```
 
-Put `HUE_BRIDGE_IP` and `HUE_LIGHT_ID` in `/etc/potato-hue/.env`. Leave
-`HUE_APP_KEY` empty for now. Press the physical Hue bridge button, then create
-a server-specific key using the service configuration:
+To remove the service:
 
 ```sh
-cd /etc/potato-hue
-sudo /usr/local/bin/potato-hue authorize
+make service-remove
 ```
 
-Copy the printed `HUE_APP_KEY` into `/etc/potato-hue/.env`, then enable it:
+Removal stops and disables the service and removes its binary and unit file.
+It deliberately keeps `/etc/potato-hue/.env` and its saved queue under
+`/var/lib/potato-hue`, so reinstalling does not require another Hue bridge
+authorization.
 
-```sh
-sudo systemctl enable --now potato-hue
-sudo journalctl -u potato-hue -f
-```
+## Configure the pulse
 
-The watcher state survives service restarts in
-`/var/lib/potato-hue/watch-state.json`. Its `.env` is mode `600` and is never
-stored in the repository.
-
-## Pulse semantics
-
-The watcher captures the chosen light's state once for each queued batch.
-An initially-on light is first turned dark; an initially-off light stays off.
-Each queued snatch turns the light on at `PULSE_BRI` for `PULSE_ON_MS`, turns
-it off for `PULSE_GAP_MS`, then, after all pulses, restores the saved on/off,
-brightness, and active colour-mode settings. A change from holder count 100 to
-110 therefore produces ten pulses before the previous state is restored.
-
-## Pulse configuration
-
-All pulse settings are optional and belong in `.env`:
+Edit `/etc/potato-hue/.env`, then run `make service-restart` for settings to
+take effect:
 
 ```dotenv
+# Check Pot Potato every 60 seconds by default.
+POTATO_POLL_SECONDS=60
+
+# A pulse is on for 450 ms, then dark for 180 ms before a possible next pulse.
 PULSE_ON_MS=450
 PULSE_GAP_MS=180
-PULSE_MAX_BRIGHTNESS=100 # percentage, from 1 to 100
-PULSE_TEMPERATURE_K=2700 # warm-white pulse; only for colour-temperature lights
-# PULSE_COLOR=#FF9A20   # RGB pulse; only for colour-capable lights
+PULSE_MAX_BRIGHTNESS=100 # 1–100 percent
+
+# Leave both colour options unset to reuse the light's existing colour.
+# For white/colour-temperature lights, use a Kelvin temperature:
+PULSE_TEMPERATURE_K=2700
+
+# For colour-capable lights, use this instead of PULSE_TEMPERATURE_K:
+# PULSE_COLOR=#FF9A20
 ```
 
-`PULSE_TEMPERATURE_K` and `PULSE_COLOR` cannot be used together. With neither
-set, a pulse uses the light's existing colour. The saved original brightness,
+`PULSE_TEMPERATURE_K` and `PULSE_COLOR` are mutually exclusive. A colour
+temperature must be between 2000K and 6535K. The saved original brightness,
 colour/temperature, and on/off state are always restored at the end of a
 batch.
+
+## What a pulse means
+
+The service captures the light's state once for each queued batch. If the
+light is on, it first goes dark. If it is off, it stays off until the pulse.
+Each snatch turns it on at the configured brightness and colour, then dark
+again. After all queued pulses, it restores the saved state.
+
+So if the holder count increases by 10 between checks, the light pulses 10
+times, then returns to precisely the state it was in before the first pulse.
+
+## Other service commands
+
+```sh
+make service-status     # show whether the service is running
+make service-logs       # follow its journal log
+make service-start      # start it
+make service-stop       # stop it
+make service-restart    # restart it after configuration changes
+make service-authorize  # create a replacement Hue key after pressing the button
+make service-list-lights
+make service-test-pulse
+make help               # show every available target
+```
+
+The `systemd` unit uses an unprivileged system-managed identity. Its state is
+stored in `/var/lib/potato-hue/watch-state.json`; its secret configuration is
+`/etc/potato-hue/.env` with mode `600` and is never stored in the repository.
