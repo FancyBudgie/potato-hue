@@ -137,7 +137,7 @@ impl Config {
             } else {
                 env::var("HUE_LIGHT_ID").unwrap_or_default()
             },
-            poll_every: Duration::from_secs(env_u64("POTATO_POLL_SECONDS", 3)?),
+            poll_every: Duration::from_secs(env_u64("POTATO_POLL_SECONDS", 60)?),
             pulse_on: Duration::from_millis(env_u64("PULSE_ON_MS", 450)?),
             pulse_gap: Duration::from_millis(env_u64("PULSE_GAP_MS", 180)?),
             pulse_bri: hue_brightness(env_u64("PULSE_MAX_BRIGHTNESS", 100)?)?,
