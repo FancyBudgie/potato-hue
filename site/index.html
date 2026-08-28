@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="A tiny Linux service that makes Philips Hue lights react to Pot Potato." />
+    <meta name="theme-color" content="#101317" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link rel="apple-touch-icon" href="favicon.png" />
+    <title>potato-hue | Hot potato, real light</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="site-header">
+        <a class="brand" href="#top" aria-label="potato-hue home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 48 48" fill="none"><path d="M27.4 8.2c-5.8 0-12.2 3.7-15.3 9.2-3.2 5.5-3.1 12.8.2 17.4 3.3 4.5 9.6 6.7 15.5 5.1 5.9-1.5 11.4-6.7 12.7-12.7 1.2-6-1.8-12.7-7.1-16.4-1.8-1.7-3.8-2.6-6-2.6Z" fill="currentColor"/><path d="M26.3 9.1c-.2-2.1.8-4 2.8-5.1M25.2 21.2h.1M17.8 26h.1M31.7 29.2h.1" stroke="currentColor" stroke-linecap="round" stroke-width="2.8"/></svg>
+          </span>
+          <span>potato-hue</span>
+          <span class="byline">| by <strong>Fancy Budgie</strong></span>
+        </a>
+        <div class="theme-switcher" aria-label="Theme">
+          <button type="button" data-theme="auto" aria-pressed="true">Auto</button>
+          <button type="button" data-theme="light" aria-label="Light theme" title="Light theme">☼</button>
+          <button type="button" data-theme="dark" aria-label="Dark theme" title="Dark theme">☾</button>
+        </div>
+      </header>
+
+      <section class="hero" id="top">
+        <div class="eyebrow"><span></span> Philips Hue × Pot Potato</div>
+        <h1>Hot potato.<br /><em>Real light.</em></h1>
+        <p class="lede">A small, self-hosted Linux service that pulses your Philips Hue light whenever Pot Potato is snatched.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="#install">Install it</a>
+          <a class="button button-quiet" href="https://github.com/FancyBudgie/potato-hue">Source code <span aria-hidden="true">↗</span></a>
+        </div>
+      </section>
+
+      <section class="feature-grid" aria-label="Highlights">
+        <article class="feature-card"><span class="icon">↯</span><h2>Snatch pulses</h2><p>One snatch, one pulse. Ten snatches while you are away? Ten pulses, in order.</p></article>
+        <article class="feature-card"><span class="icon">↺</span><h2>Never loses your setting</h2><p>The light always returns to its former on/off state, brightness, and colour.</p></article>
+        <article class="feature-card"><span class="icon">◌</span><h2>Local by design</h2><p>Your Hue bridge stays on your home network. No cloud bridge or inbound access required.</p></article>
+      </section>
+
+      <section class="panel install" id="install">
+        <div class="section-heading"><span>01</span><div><p class="kicker">Linux + systemd</p><h2>Up and running in minutes.</h2></div></div>
+        <ol class="steps">
+          <li><span>1</span><div><h3>Get the code</h3><pre><code>git clone git@github.com:FancyBudgie/potato-hue.git
+cd potato-hue</code></pre></div></li>
+          <li><span>2</span><div><h3>Install the service</h3><p>This builds the tiny Rust binary and creates a protected config file at <code>/etc/potato-hue/.env</code>.</p><pre><code>make service-install</code></pre></div></li>
+          <li><span>3</span><div><h3>Tell it where your bridge is</h3><pre><code>sudoedit /etc/potato-hue/.env
+
+HUE_BRIDGE_IP=192.168.1.50
+HUE_APP_KEY=
+HUE_LIGHT_ID=</code></pre></div></li>
+          <li><span>4</span><div><h3>Authorize and choose a light</h3><p>Press the physical Hue bridge button, then run the following. Copy the printed key and your chosen light ID into the config file.</p><pre><code>make service-authorize
+make service-list-lights
+sudoedit /etc/potato-hue/.env</code></pre></div></li>
+          <li><span>5</span><div><h3>Test, then let it watch</h3><pre><code>make service-test-pulse
+sudo systemctl enable --now potato-hue
+make service-logs</code></pre></div></li>
+        </ol>
+        <p class="callout"><strong>Good to know:</strong> the watcher starts from the current holder count and waits for the next snatch. By default it checks Pot Potato every 60 seconds.</p>
+      </section>
+
+      <section class="two-up">
+        <article class="panel compact" id="customize">
+          <div class="section-heading"><span>02</span><div><p class="kicker">Make it yours</p><h2>Configure the pulse.</h2></div></div>
+          <p>Edit <code>/etc/potato-hue/.env</code>, then restart the service.</p>
+          <pre><code>POTATO_POLL_SECONDS=60
+PULSE_ON_MS=450
+PULSE_GAP_MS=180
+PULSE_MAX_BRIGHTNESS=70
+
+# White / temperature lights
+PULSE_TEMPERATURE_K=2700
+
+# RGB lights (use instead of temperature)
+# PULSE_COLOR=#FF9A20</code></pre>
+          <p class="muted">Temperature and RGB colour are mutually exclusive. Leave both unset to use the light’s existing colour.</p>
+          <pre><code>make service-restart</code></pre>
+        </article>
+        <article class="panel compact hot-potato">
+          <div class="section-heading"><span>03</span><div><p class="kicker">Optional</p><h2>Feel the heat.</h2></div></div>
+          <p>Watch a Chia address. While it holds the potato, its light gets hotter as the deadline approaches.</p>
+          <pre><code>WATCHED_ADDRESS=xch1youraddress...
+HOLDER_START_BRIGHTNESS=10
+HOLDER_END_BRIGHTNESS=100
+
+# RGB: brown → red
+HOLDER_START_COLOR=#8B4513
+HOLDER_END_COLOR=#FF0000
+
+# White: warm → cool
+HOLDER_START_TEMPERATURE_K=2200
+HOLDER_END_TEMPERATURE_K=6500</code></pre>
+          <p class="muted">RGB lights get the brown-to-red gradient. White-temperature lights move from warm to cool. Brightness-only lights still intensify.</p>
+        </article>
+      </section>
+
+      <section class="panel commands">
+        <div class="section-heading"><span>04</span><div><p class="kicker">Everyday controls</p><h2>Keep it simple.</h2></div></div>
+        <div class="command-grid">
+          <code>make service-status <small>see if it is running</small></code>
+          <code>make service-logs <small>follow the live log</small></code>
+          <code>make service-update <small>build + redeploy an update</small></code>
+          <code>make service-remove <small>remove service, keep config</small></code>
+        </div>
+      </section>
+
+      <footer>
+        <a href="https://github.com/FancyBudgie/potato-hue">⌘ Source code</a>
+        <span>MIT licensed · Made by Fancy Budgie</span>
+        <a href="https://potpotato.xyz/">Pot Potato ↗</a>
+      </footer>
+    </main>
+  </body>
+</html>

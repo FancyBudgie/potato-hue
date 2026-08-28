@@ -9,6 +9,17 @@ The Hue bridge is contacted only over your home network. The service starts on
 boot, restarts if it fails, and saves its queue locally so a restart does not
 lose observed snatches.
 
+## Documentation website
+
+The same setup guide is available as a lightweight static website in
+[`site/`](site/). It is configured as a Cloudflare Worker static-assets site
+in [`wrangler.jsonc`](wrangler.jsonc). In Cloudflare Workers Builds, use `main`
+as the production branch, `exit 0` as the build command, and `npx wrangler
+deploy` as the deploy command. Non-production builds can keep the default
+`npx wrangler versions upload` preview command. Every push to `main` will then
+deploy the updated guide. This follows Cloudflare's [Workers static-assets
+configuration](https://developers.cloudflare.com/workers/configuration/sites/start-from-worker/).
+
 ## Install and start
 
 You need a Linux machine that can reach both the internet and your Hue bridge,

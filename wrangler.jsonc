@@ -1,0 +1,8 @@
+{
+  "$schema": "https://unpkg.com/wrangler/config-schema.json",
+  "name": "potato-hue",
+  "compatibility_date": "2026-08-28",
+  "assets": {
+    "directory": "./site"
+  }
+}
