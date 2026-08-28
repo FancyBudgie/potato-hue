@@ -5,8 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="A tiny Linux service that makes Philips Hue lights react to Pot Potato." />
     <meta name="theme-color" content="#101317" />
+    <link rel="canonical" href="https://potato-hue.fancybudgie.com/" />
     <link rel="icon" type="image/png" href="favicon.png" />
     <link rel="apple-touch-icon" href="favicon.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="potato-hue" />
+    <meta property="og:url" content="https://potato-hue.fancybudgie.com/" />
+    <meta property="og:title" content="potato-hue — Hot potato, real light." />
+    <meta property="og:description" content="A small self-hosted Linux service that makes your Philips Hue light react to every Pot Potato snatch." />
+    <meta property="og:image" content="https://potato-hue.fancybudgie.com/og.png" />
+    <meta property="og:image:secure_url" content="https://potato-hue.fancybudgie.com/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A glowing potato lamp, radiating warm light." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="potato-hue — Hot potato, real light." />
+    <meta name="twitter:description" content="A small self-hosted Linux service that makes your Philips Hue light react to every Pot Potato snatch." />
+    <meta name="twitter:image" content="https://potato-hue.fancybudgie.com/og.png" />
+    <meta name="twitter:image:alt" content="A glowing potato lamp, radiating warm light." />
     <title>potato-hue | Hot potato, real light</title>
     <link rel="stylesheet" href="styles.css" />
     <script src="app.js" defer></script>
@@ -16,10 +33,11 @@
       <header class="site-header">
         <a class="brand" href="#top" aria-label="potato-hue home">
           <span class="brand-mark" aria-hidden="true">
-            <svg viewBox="0 0 48 48" fill="none"><path d="M27.4 8.2c-5.8 0-12.2 3.7-15.3 9.2-3.2 5.5-3.1 12.8.2 17.4 3.3 4.5 9.6 6.7 15.5 5.1 5.9-1.5 11.4-6.7 12.7-12.7 1.2-6-1.8-12.7-7.1-16.4-1.8-1.7-3.8-2.6-6-2.6Z" fill="currentColor"/><path d="M26.3 9.1c-.2-2.1.8-4 2.8-5.1M25.2 21.2h.1M17.8 26h.1M31.7 29.2h.1" stroke="currentColor" stroke-linecap="round" stroke-width="2.8"/></svg>
+            <img src="favicon.png" alt="" />
           </span>
           <span>potato-hue</span>
           <span class="byline">| by <strong>Fancy Budgie</strong></span>
+          <img class="byline-avatar" src="fancy-budgie-avatar.png" alt="" />
         </a>
         <div class="theme-switcher" aria-label="Theme">
           <button type="button" data-theme="auto" aria-pressed="true">Auto</button>
@@ -39,7 +57,7 @@
       </section>
 
       <section class="feature-grid" aria-label="Highlights">
-        <article class="feature-card"><span class="icon">↯</span><h2>Snatch pulses</h2><p>One snatch, one pulse. Ten snatches while you are away? Ten pulses, in order.</p></article>
+        <article class="feature-card"><span class="icon">↯</span><h2>Snatch pulses</h2><p>One snatch, one pulse. If several happen between polls, every pulse is queued in order.</p></article>
         <article class="feature-card"><span class="icon">↺</span><h2>Never loses your setting</h2><p>The light always returns to its former on/off state, brightness, and colour.</p></article>
         <article class="feature-card"><span class="icon">◌</span><h2>Local by design</h2><p>Your Hue bridge stays on your home network. No cloud bridge or inbound access required.</p></article>
       </section>

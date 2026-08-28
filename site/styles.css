@@ -41,10 +41,11 @@ code { font-size: .9em; }
 .shell { width: min(1160px, calc(100% - 40px)); margin: 0 auto; }
 .site-header { min-height: 104px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 800; font-size: 1.3rem; letter-spacing: -.04em; }
-.brand-mark { color: var(--accent); width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid var(--line); background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent); border-radius: 10px; box-shadow: 0 3px 10px var(--shadow), inset 0 0 0 3px color-mix(in srgb, var(--accent) 5%, transparent); }
-.brand-mark svg { width: 29px; }
+.brand-mark { width: 44px; height: 44px; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--line); background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent); border-radius: 10px; box-shadow: 0 3px 10px var(--shadow), inset 0 0 0 3px color-mix(in srgb, var(--accent) 5%, transparent); }
+.brand-mark img { display: block; width: 100%; height: 100%; object-fit: cover; transform: scale(1.08); }
 .byline { color: var(--muted); font-size: .74rem; letter-spacing: 0; margin-left: 2px; }
 .byline strong { color: var(--ink); }
+.byline-avatar { width: 24px; height: 24px; margin-left: -4px; object-fit: cover; border: 1px solid var(--line); border-radius: 7px; box-shadow: 0 2px 5px var(--shadow); }
 .theme-switcher { display: inline-flex; padding: 3px; gap: 2px; background: var(--panel-raised); border: 1px solid var(--line); border-radius: 9px; box-shadow: 0 2px 7px var(--shadow); }
 .theme-switcher button { appearance: none; border: 0; color: var(--muted); background: transparent; cursor: pointer; width: 35px; height: 30px; border-radius: 6px; font: 700 .8rem/1 inherit; }
 .theme-switcher button:first-child { width: 48px; }
@@ -90,5 +91,5 @@ pre { overflow: auto; padding: 14px 16px; margin: 10px 0 0; border: 1px solid co
 footer { display: flex; justify-content: space-between; align-items: center; gap: 15px; padding: 36px 18px 44px; color: var(--muted); font-size: .78rem; }
 footer a { color: var(--ink); font-weight: 750; }
 
-@media (max-width: 760px) { .site-header { min-height: 80px; } .byline { display: none; } .hero { padding: 60px 5px 50px; } .feature-grid, .two-up { grid-template-columns: 1fr; } .panel { padding: 24px 20px; } .command-grid { grid-template-columns: 1fr; } footer { align-items: flex-start; flex-direction: column; padding-left: 0; } }
+@media (max-width: 760px) { .site-header { min-height: 80px; } .byline, .byline-avatar { display: none; } .hero { padding: 60px 5px 50px; } .feature-grid, .two-up { grid-template-columns: 1fr; } .panel { padding: 24px 20px; } .command-grid { grid-template-columns: 1fr; } footer { align-items: flex-start; flex-direction: column; padding-left: 0; } }
 @media (max-width: 420px) { .shell { width: min(100% - 24px, 1160px); } .brand { font-size: 1.1rem; } .brand-mark { width: 38px; height: 38px; } .theme-switcher button:first-child { width: 42px; } .theme-switcher button { width: 30px; } }
