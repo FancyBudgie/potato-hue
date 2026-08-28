@@ -123,14 +123,21 @@ batch.
 
 ## Hot-potato holder mode
 
-Set `WATCHED_ADDRESS` to a Chia address to turn the selected light into a
-live hot-potato indicator while that address owns the potato. It begins at the
-configured starting style when the potato is acquired, then intensifies until
-the deadline. When somebody else snatches it, the service restores the exact
-state the light had before holder mode began.
+Turn the selected light into a live hot-potato indicator for either one Chia
+address or whoever currently holds the potato. It begins at the configured
+starting style when a hold starts, then intensifies until the deadline. In
+specific-address mode, it restores the exact previous light state when somebody
+else snatches it. In follow-current-holder mode, it stays hot across snatches
+and starts again at the new holder's deadline.
 
 ```dotenv
+# Choose exactly one target:
+# Only this address:
 WATCHED_ADDRESS=xch1youraddress...
+
+# Or follow whoever currently holds it:
+# FOLLOW_CURRENT_HOLDER=true
+
 HOLDER_START_BRIGHTNESS=10 # percentage
 HOLDER_END_BRIGHTNESS=100  # percentage
 
@@ -143,10 +150,11 @@ HOLDER_START_TEMPERATURE_K=2200 # warm white
 HOLDER_END_TEMPERATURE_K=6500   # cool white
 ```
 
-All holder-mode settings are optional except `WATCHED_ADDRESS`; those values
-are the defaults. The bridge reports the selected light's capabilities, and
-the service automatically uses the brown-to-red RGB gradient for RGB lights or
-the warm-to-cold temperature gradient for colour-temperature lights. For a
+All style settings are optional. To enable holder mode, set exactly one of
+`WATCHED_ADDRESS` or `FOLLOW_CURRENT_HOLDER=true`; the shown style values are
+the defaults. The bridge reports the selected light's capabilities, and the
+service automatically uses the brown-to-red RGB gradient for RGB lights or the
+warm-to-cold temperature gradient for colour-temperature lights. For a
 brightness-only light, it still runs the brightness gradient. `make
 service-list-lights` labels each light as `RGB`, `white temperature`, or
 `brightness only`.

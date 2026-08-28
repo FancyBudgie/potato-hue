@@ -36,13 +36,19 @@ enum PulseStyle {
 
 #[derive(Debug, Clone)]
 struct HolderConfig {
-    watched_address: String,
+    target: HolderTarget,
     start_bri: u8,
     end_bri: u8,
     start_xy: [f64; 2],
     end_xy: [f64; 2],
     start_ct: u16,
     end_ct: u16,
+}
+
+#[derive(Debug, Clone)]
+enum HolderTarget {
+    WatchedAddress(String),
+    CurrentHolder,
 }
 
 #[derive(Debug, Deserialize)]
@@ -171,9 +177,18 @@ impl Config {
             (None, None) => PulseStyle::Preserve,
             (Some(_), Some(_)) => unreachable!("configuration conflict checked above"),
         };
-        let holder = optional_env("WATCHED_ADDRESS")
-            .map(|address| HolderConfig::from_env(address.trim().to_owned()))
-            .transpose()?;
+        let watched_address = optional_env("WATCHED_ADDRESS");
+        let follow_current_holder = env_bool("FOLLOW_CURRENT_HOLDER", false)?;
+        let holder = match (watched_address, follow_current_holder) {
+            (Some(_), true) => {
+                bail!("set only one of WATCHED_ADDRESS and FOLLOW_CURRENT_HOLDER")
+            }
+            (Some(address), false) => Some(HolderConfig::from_env(HolderTarget::WatchedAddress(
+                address.trim().to_owned(),
+            ))?),
+            (None, true) => Some(HolderConfig::from_env(HolderTarget::CurrentHolder)?),
+            (None, false) => None,
+        };
         Ok(Self {
             bridge_ip: required_env("HUE_BRIDGE_IP")?,
             app_key: required_env("HUE_APP_KEY")?,
@@ -201,9 +216,9 @@ impl Config {
 }
 
 impl HolderConfig {
-    fn from_env(watched_address: String) -> Result<Self> {
+    fn from_env(target: HolderTarget) -> Result<Self> {
         Ok(Self {
-            watched_address,
+            target,
             start_bri: hue_brightness_named("HOLDER_START_BRIGHTNESS", 10)?,
             end_bri: hue_brightness_named("HOLDER_END_BRIGHTNESS", 100)?,
             start_xy: rgb_hex_to_xy(
@@ -221,6 +236,16 @@ impl HolderConfig {
                 optional_env_u64("HOLDER_END_TEMPERATURE_K")?.unwrap_or(6_500),
             )?,
         })
+    }
+
+    fn is_active_for(&self, potato: &PotatoState) -> bool {
+        let Some(owner) = potato.current_owner.as_deref() else {
+            return false;
+        };
+        match &self.target {
+            HolderTarget::WatchedAddress(address) => owner.eq_ignore_ascii_case(address),
+            HolderTarget::CurrentHolder => !owner.trim().is_empty(),
+        }
     }
 }
 
@@ -252,6 +277,17 @@ fn optional_env_u64(name: &str) -> Result<Option<u64>> {
 
 fn optional_env(name: &str) -> Option<String> {
     env::var(name).ok().filter(|value| !value.trim().is_empty())
+}
+
+fn env_bool(name: &str, default: bool) -> Result<bool> {
+    match env::var(name) {
+        Ok(value) => match value.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => Ok(true),
+            "0" | "false" | "no" | "off" => Ok(false),
+            _ => bail!("{name} must be true or false"),
+        },
+        Err(_) => Ok(default),
+    }
 }
 
 fn kelvin_to_mired(kelvin: u64) -> Result<u16> {
@@ -464,18 +500,16 @@ async fn update_holder_mode(
     potato: &PotatoState,
     watch_state: &mut WatchState,
 ) -> Result<()> {
-    let is_watched_holder = config.holder.as_ref().is_some_and(|holder| {
-        potato
-            .current_owner
-            .as_deref()
-            .is_some_and(|owner| owner.eq_ignore_ascii_case(&holder.watched_address))
-    });
+    let is_watched_holder = config
+        .holder
+        .as_ref()
+        .is_some_and(|holder| holder.is_active_for(potato));
 
     if !is_watched_holder {
         if let Some(saved_state) = watch_state.holder_light_state.take() {
             put_light_state(client, config, restore_command(&saved_state)).await?;
             save_watch_state(&config.state_file, watch_state)?;
-            println!("Watched address no longer holds the potato; restored the light.");
+            println!("Hot-potato mode is inactive; restored the light.");
         }
         return Ok(());
     }
@@ -485,7 +519,7 @@ async fn update_holder_mode(
     if watch_state.holder_light_state.is_none() {
         watch_state.holder_light_state = Some(light.state.clone());
         save_watch_state(&config.state_file, watch_state)?;
-        println!("Watched address holds the potato; starting the hot-potato light.");
+        println!("Hot-potato mode is active; starting the hot-potato light.");
     }
     let progress = hold_progress(potato, current_time_ms());
     put_light_state(
@@ -795,7 +829,7 @@ mod tests {
 
     fn holder() -> HolderConfig {
         HolderConfig {
-            watched_address: "xch1test".to_owned(),
+            target: HolderTarget::WatchedAddress("xch1test".to_owned()),
             start_bri: 25,
             end_bri: 254,
             start_xy: [0.5, 0.4],
@@ -803,6 +837,29 @@ mod tests {
             start_ct: 454,
             end_ct: 153,
         }
+    }
+
+    fn potato_with_owner(owner: Option<&str>) -> PotatoState {
+        PotatoState {
+            holder_count: 1,
+            current_owner: owner.map(str::to_owned),
+            purchased_at: Some(1_000),
+            deadline: Some(5_000),
+        }
+    }
+
+    #[test]
+    fn holder_mode_can_target_a_specific_address_or_the_current_holder() {
+        let watched = holder();
+        assert!(watched.is_active_for(&potato_with_owner(Some("XCH1TEST"))));
+        assert!(!watched.is_active_for(&potato_with_owner(Some("xch1someoneelse"))));
+
+        let everyone = HolderConfig {
+            target: HolderTarget::CurrentHolder,
+            ..holder()
+        };
+        assert!(everyone.is_active_for(&potato_with_owner(Some("xch1anyone"))));
+        assert!(!everyone.is_active_for(&potato_with_owner(None)));
     }
 
     fn test_light(control: HueControl) -> HueLight {
